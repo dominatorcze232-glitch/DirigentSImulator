@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Dirigent</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/wasm/vision_bundle.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #1a1a2e;
+            color: white;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #container {
+            position: relative;
+            width: 640px;
+            height: 480px;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        video, canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            transform: scaleX(-1); /* Zrcadlové otočení pro přirozené ovládání */
+        }
+        #ui-overlay {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 10;
+            background: rgba(0,0,0,0.6);
+            padding: 15px;
+            border-radius: 8px;
+            pointer-events: none;
+        }
+        #start-btn {
+            padding: 15px 30px;
+            font-size: 1.2rem;
+            background: #e94560;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            z-index: 20;
+            transition: 0.3s;
+        }
+        #start-btn:hover { background: #ff4d6d; }
+        .status { color: #4ecca3; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <button id="start-btn">Spustit hudbu a zapnout kameru</button>
+
+    <div id="container" style="display: none;">
+        <video id="webcam" autoplay playsinline></video>
+        <canvas id="output_canvas"></canvas>
+        <div id="ui-overlay">
+            <h3>AI Dirigent</h3>
+            <p>Status: <span id="status" class="status">Načítání AI...</span></p>
+            <p>Hlasitost: <span id="val-volume">100%</span></p>
+            <p>Vyvážení (L/P): <span id="val-balance">Střed</span></p>
+            <p>Tempo: <span id="val-tempo">120 BPM</span></p>
+        </div>
+    </div>
+
+    <script type="module">
+        import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/wasm/vision_bundle.js";
+
+        const video = document.getElementById("webcam");
+        const canvas = document.getElementById("output_canvas");
+        const canvasCtx = canvas.getContext("2d");
+        const startBtn = document.getElementById("start-btn");
+        const container = document.getElementById("container");
+        
+        let handLandmarker = undefined;
+        let runningMode = "VIDEO";
+        let lastVideoTime = -1;
+
+        // --- ZVUKOVÝ SYSTÉM (Tone.js) ---
+        // Použijeme jednoduchý vestavěný synth (pro testování bez autorských práv na MP3)
+        const synthA = new Tone.PolySynth(Tone.Synth).toDestination();
+        const synthB = new Tone.PolySynth(Tone.Synth).toDestination();
+        
+        // Nastavení základních zvuků (Housle / Violoncello simulace)
+        synthA.set({ oscillator: { type: "sawtooth" } });
+        synthB.set({ oscillator: { type: "triangle" } });
+
+        // Jednoduchá smyčka (např. Mozart motiv zjednodušeně)
+        const melody = ["C4", "E4", "G4", "C5", "G4", "E4", "C4"];
+        let noteIndex = 0;
+
+        Tone.Transport.scheduleRepeat((time) => {
+            let note = melody[noteIndex % melody.length];
+            synthA.triggerAttackRelease(note, "8n", time);
+            synthB.triggerAttackRelease(Tone.Frequency(note).transposition(-12), "8n", time); // O oktávu níž
+            noteIndex++;
+        }, "4n");
+
+        // --- INICIALIZACE DETEKCE RUKOU ---
+        async function createHandLandmarker() {
+            const vision = await FilesetResolver.forVisionTasks(
+                "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/wasm"
+            );
+            handLandmarker = await HandLandmarker.createFromOptions(vision, {
+                baseOptions: {
+                    modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
+                    delegate: "GPU"
+                },
+                runningMode: runningMode,
+                numHands: 2
+            });
+            document.getElementById("status").innerText = "Připraveno! Mávni ruku.";
+        }
+        createHandLandmarker();
+
+        // --- SPUŠTĚNÍ KAMERY A ZVUKU ---
+        startBtn.addEventListener("click", async () => {
+            await Tone.start();
+            Tone.Transport.start();
+            Tone.Transport.bpm.value = 120;
+            
+            startBtn.style.display = "none";
+            container.style.display = "block";
+
+            navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
+                video.srcObject = stream;
+                video.addEventListener("loadeddata", predictWebcam);
+            });
+        });
+
+        // --- HLAVNÍ SMYČKA DETEKCE A OVLÁDÁNÍ ---
+        async function predictWebcam() {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+
+            if (lastVideoTime !== video.currentTime) {
+                lastVideoTime = video.currentTime;
+                let startTimeMs = performance.now();
+                const results = handLandmarker.detectForVideo(video, startTimeMs);
+
+                canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+
+                if (results.landmarks && results.landmarks.length > 0) {
+                    for (let i = 0; i < results.landmarks.length; i++) {
+                        const landmarks = results.landmarks[i];
+                        const handedness = results.handednesses[i][0].categoryName; // "Left" nebo "Right" (z pohledu kamery)
+
+                        // Vykreslení kloubů na plátno
+                        drawHand(landmarks);
+
+                        // Hlavní kloub (zápěstí je index 0)
+                        const wrist = landmarks[0];
+
+                        // OVLÁDÁNÍ PODLE STRANY RUKY
+                        if (handedness === "Left") { 
+                            // Pravá ruka uživatele (zrcadlově otočená kamera ji bere jako Left)
+                            // Výška (Y) ovládá Hlasitost (0 navrhu = ticho v MediaPipe, proto (1 - Y))
+                            let vol = (1 - wrist.y) * 20 - 15; // Přepočet na decibely (-15dB až +5dB)
+                            Tone.Destination.volume.rampTo(vol, 0.1);
+                            document.getElementById("val-volume").innerText = Math.round((1 - wrist.y) * 100) + "%";
+                        } 
+                        else if (handedness === "Right") {
+                            // Levá ruka uživatele (kamera ji vidí jako Right)
+                            // Horizontální pozice (X) ovládá balanc mezi vysokými a nízkými tóny
+                            let mix = wrist.x; // 0 vlevo, 1 vpravo
+                            synthA.volume.value = Tone.gainToDb(1 - mix);
+                            synthB.volume.value = Tone.gainToDb(mix);
+                            
+                            document.getElementById("val-balance").innerText = mix < 0.4 ? "Vysoké smyčce" : mix > 0.6 ? "Nízké smyčce" : "Střed";
+                        }
+                    }
+                }
+            }
+            window.requestAnimationFrame(predictWebcam);
+        }
+
+        // Pomocná funkce na vykreslení ruky
+        function drawHand(landmarks) {
+            canvasCtx.fillStyle = "#e94560";
+            canvasCtx.strokeStyle = "#4ecca3";
+            canvasCtx.lineWidth = 3;
+
+            landmarks.forEach(point => {
+                canvasCtx.beginPath();
+                canvasCtx.arc(point.x * canvas.width, point.y * canvas.height, 5, 0, 2 * Math.PI);
+                canvasCtx.fill();
+            });
+        }
+    </script>
+</body>
+</html>
