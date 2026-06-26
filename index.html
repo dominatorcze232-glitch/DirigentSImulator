@@ -3,122 +3,81 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dirigent Simulator (Semi-Conductor Clone)</title>
+    <title>Semi-Conductor Clone - Orchestral Simulator</title>
     
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
 
     <style>
         body {
-            margin: 0;
-            padding: 0;
-            background-color: #111;
+            margin: 0; padding: 0;
+            background: radial-gradient(circle, #1a1a2e 0%, #0f0f1b 100%);
             color: #fff;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            overflow: hidden;
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            min-height: 100vh; overflow: hidden;
         }
-
         h1 {
-            margin: 10px 0 5px 0;
-            font-weight: 300;
-            letter-spacing: 2px;
+            margin: 0; font-weight: 300; letter-spacing: 4px; font-size: 28px; color: #e2e2e2;
         }
-
-        #status {
-            color: #aaa;
-            margin-bottom: 15px;
-            font-size: 14px;
+        #status { color: #8a8a9e; margin: 10px 0 20px 0; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }
+        #view-wrapper {
+            position: relative; width: 640px; height: 480px;
+            background: #0b0b13; border-radius: 16px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.7); overflow: hidden;
+            border: 1px solid rgba(255,255,255,0.1);
         }
-
-        #container {
-            position: relative;
-            width: 640px;
-            height: 480px;
-            background: #222;
-            border-radius: 12px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            overflow: hidden;
-        }
-
         video, canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
-            transform: scaleX(-1); /* Zrcadlové otočení pro přirozený pohyb */
-            width: 640px;
-            height: 480px;
+            position: absolute; top: 0; left: 0;
+            transform: scaleX(-1); width: 640px; height: 480px;
         }
-
-        canvas {
-            z-index: 2;
+        canvas { z-index: 2; }
+        #ui-panel {
+            position: absolute; bottom: 20px; left: 0; right: 0;
+            display: flex; justify-content: space-around;
+            z-index: 3; background: rgba(15, 15, 27, 0.85);
+            padding: 15px; margin: 0 20px; border-radius: 12px;
+            pointer-events: none; border: 1px solid rgba(255,255,255,0.05);
+            backdrop-filter: blur(5px);
         }
-
-        #overlay {
-            position: absolute;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 3;
-            background: rgba(0, 0, 0, 0.7);
-            padding: 10px 20px;
-            border-radius: 20px;
-            pointer-events: none;
-            text-align: center;
-        }
-
-        #bpm-display {
-            font-size: 24px;
-            font-weight: bold;
-            color: #00ffcc;
-        }
-
+        .ui-stat { text-align: center; }
+        .ui-label { font-size: 11px; color: #8a8a9e; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
+        .ui-value { font-size: 22px; font-weight: bold; color: #4facfe; }
+        #volume-val { color: #00f2fe; }
         #start-btn {
-            padding: 15px 40px;
-            font-size: 18px;
-            background-color: #00ffcc;
-            color: #111;
-            border: none;
-            border-radius: 30px;
-            cursor: pointer;
-            font-weight: bold;
-            box-shadow: 0 5px 15px rgba(0,255,204,0.4);
-            transition: all 0.3s ease;
-            z-index: 4;
+            padding: 18px 45px; font-size: 16px; letter-spacing: 2px;
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: #fff; border: none; border-radius: 35px;
+            cursor: pointer; font-weight: bold;
+            box-shadow: 0 10px 25px rgba(0,242,254,0.3);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); z-index: 4;
         }
-
-        #start-btn:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 8px 20px rgba(0,255,204,0.6);
-        }
-
-        #start-btn:disabled {
-            background-color: #555;
-            color: #888;
-            cursor: not-allowed;
-            box-shadow: none;
-            transform: none;
-        }
+        #start-btn:hover { transform: translateY(-2px); box-shadow: 0 15px 30px rgba(0,242,254,0.5); }
+        #start-btn:disabled { background: #333; color: #666; box-shadow: none; cursor: not-allowed; }
     </style>
 </head>
 <body>
 
-    <h1>DIRIGENT SIMULATOR</h1>
-    <div id="status">Načítám AI modely, prosím čekejte...</div>
+    <h1>SEMI-CONDUCTOR</h1>
+    <div id="status">Načítám orchestr a AI rozhraní...</div>
 
-    <button id="start-btn" disabled>SPUSTIT ORCHESTR</button>
+    <button id="start-btn" disabled>VSTOUPIT NA PODIUM</button>
 
-    <div id="container" style="display:none; margin-top: 20px;">
-        <video id="video" playsinline></video>
-        <canvas id="canvas"></canvas>
-        <div id="overlay">
-            <div>Aktuální tempo orchestru:</div>
-            <div id="bpm-display">0 BPM</div>
+    <div id="view-wrapper" style="display:none;">
+        <video id="video" width="640" height="480" playsinline style="display: none;"></video>
+        <canvas id="canvas" width="640" height="480"></canvas>
+        
+        <div id="ui-panel">
+            <div class="ui-stat">
+                <div class="ui-label">Pravá ruka (Tempo)</div>
+                <div id="bpm-val" class="ui-value">0 BPM</div>
+            </div>
+            <div class="ui-stat">
+                <div class="ui-label">Levá ruka (Hlasitost)</div>
+                <div id="volume-val" class="ui-value">0%</div>
+            </div>
         </div>
     </div>
 
@@ -128,150 +87,215 @@
         const ctx = canvas.getContext('2d');
         const startBtn = document.getElementById('start-btn');
         const statusDiv = document.getElementById('status');
-        const container = document.getElementById('container');
-        const bpmDisplay = document.getElementById('bpm-display');
+        const viewWrapper = document.getElementById('view-wrapper');
+        const bpmVal = document.getElementById('bpm-val');
+        const volumeVal = document.getElementById('volume-val');
 
-        let detector;
-        let synth;
-        let sequence;
-        let lastRightWristY = null;
+        let hands;
+        let camera;
+        let orchestra = {};
+        let currentBpm = 100;
+        let lastRightY = null;
         let lastTime = performance.now();
-        let currentBpm = 120;
 
-        // Definice tónů pro Beethovenovu skladbu "Pro Elišku" (Für Elise)
-        const notes = [
-            "E5", "D#5", "E5", "D#5", "E5", "B4", "D5", "C5", "A4", null,
-            "C3", "E3", "A3", "C4", "E4", "A4", "B4", null,
-            "E3", "G#3", "E4", "G#4", "B4", "C5"
-        ];
-
-        // 1. Inicializace aplikace a načtení AI modelů
-        async function init() {
-            try {
-                // Nastavení TensorFlow.js a MoveNet detectoru
-                await tf.ready();
-                detector = await poseDetection.createDetector(
-                    poseDetection.SupportedModels.MoveNet, 
-                    { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
-                );
-                
-                statusDiv.innerText = "Modely načteny. Povolte přístup k webkameře.";
-                startBtn.disabled = false;
-            } catch (error) {
-                statusDiv.innerText = "Chyba při načítání modelů: " + error.message;
-            }
-        }
-
-        // 2. Nastavení webkamery
-        async function setupCamera() {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { width: 640, height: 480 },
-                audio: false
-            });
-            video.srcObject = stream;
-            return new Promise((resolve) => {
-                video.onloadedmetadata = () => {
-                    resolve(video);
-                };
-            });
-        }
-
-        // 3. Nastavení hudebního syntezátoru a sekvence (Tone.js)
-        function setupAudio() {
-            // Polyphonic Synth imitující jednoduchý orchestrální part
-            synth = new Tone.PolySynth(Tone.Synth, {
-                oscillator: { type: "triangle" },
-                envelope: { attack: 0.1, decay: 0.3, sustain: 0.6, release: 0.4 }
+        // 1. Vytvoření sekcí orchestru (Nástroje) pomocí Tone.js
+        function initOrchestra() {
+            // Sekce 1: Smyčce (Strings) - Teplý, bohatý zvuk pilových vln
+            orchestra.strings = new Tone.PolySynth(Tone.Synth, {
+                oscillator: { type: "sawtooth" },
+                filter: { Q: 1, type: "lowpass", frequency: 800 },
+                envelope: { attack: 0.3, decay: 0.2, sustain: 0.8, release: 0.8 }
             }).toDestination();
 
-            let noteIndex = 0;
-            
-            // Nekonečná smyčka přehrávání tónů
-            sequence = new Tone.Sequence((time, note) => {
-                if (note) {
-                    synth.triggerAttackRelease(note, "8n", time);
-                }
-            }, notes, "8n");
+            // Sekce 2: Dřevěné dechy (Woodwinds) - Čisté sinusové a trojúhelníkové vlny
+            orchestra.woodwinds = new Tone.PolySynth(Tone.Synth, {
+                oscillator: { type: "triangle" },
+                envelope: { attack: 0.15, decay: 0.1, sustain: 0.7, release: 0.4 }
+            }).toDestination();
 
-            Tone.Transport.bpm.value = currentBpm;
+            // Sekce 3: Žestě (Brass) - Ostrý zvuk s rychlým filtrem obálky
+            orchestra.brass = new Tone.PolySynth(Tone.Synth, {
+                oscillator: { type: "square" },
+                filter: { Q: 2, type: "lowpass", frequency: 1200 },
+                envelope: { attack: 0.1, decay: 0.3, sustain: 0.6, release: 0.5 }
+            }).toDestination();
+
+            // Hlavní hlasitost celého orchestru
+            Tone.Destination.volume.value = -10; 
         }
 
-        // Spuštění po kliknutí na tlačítko
-        startBtn.addEventListener('click', async () => {
-            startBtn.style.display = 'none';
-            statusDiv.innerText = "Dirigujte pravou rukou nahoru a dolů pro ovládání tempa!";
-            container.style.display = 'block';
-
-            await setupCamera();
-            video.play();
+        // Zjednodušená orchestrální partitura (Beethoven - Óda na radost)
+        // Každý index obsahuje pole tónů pro různé sekce orchestru (akordy)
+        const score = [
+            { strings: ["E4", "E3"], woodwinds: ["E5"], brass: ["G4"] },
+            { strings: ["E4", "E3"], woodwinds: ["E5"], brass: ["G4"] },
+            { strings: ["F4", "D3"], woodwinds: ["F5"], brass: ["A4"] },
+            { strings: ["G4", "G3"], woodwinds: ["G5"], brass: ["B4"] },
             
-            // Inicializace audio kontextu prohlížeče
-            await Tone.start();
-            setupAudio();
-            sequence.start(0);
-            Tone.Transport.start();
-
-            // Nastavení velikosti plátna podle videa
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-
-            // Spuštění detekční smyčky
-            detectPose();
-        });
-
-        // 4. Detekce pohybu v reálném čase
-        async function detectPose() {
-            const poses = await detector.estimatePoses(video);
+            { strings: ["G4", "G3"], woodwinds: ["G5"], brass: ["B4"] },
+            { strings: ["F4", "D3"], woodwinds: ["F5"], brass: ["A4"] },
+            { strings: ["E4", "C3"], woodwinds: ["E5"], brass: ["G4"] },
+            { strings: ["D4", "G2"], woodwinds: ["D5"], brass: ["F4"] },
             
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            { strings: ["C4", "C3"], woodwinds: ["C5"], brass: ["E4"] },
+            { strings: ["C4", "C3"], woodwinds: ["C5"], brass: ["E4"] },
+            { strings: ["D4", "G2"], woodwinds: ["D5"], brass: ["F4"] },
+            { strings: ["E4", "C3"], woodwinds: ["E5"], brass: ["G4"] },
+            
+            { strings: ["E4", "C3"], woodwinds: ["E5"], brass: ["G4"] },
+            { strings: ["D4", "G2"], woodwinds: ["D5"], brass: ["F4"] },
+            { strings: ["D4", "G2"], woodwinds: ["D5"], brass: ["F4"] }
+        ];
 
-            if (poses.length > 0) {
-                const pose = poses[0];
+        function startScore() {
+            let index = 0;
+            // Hudební smyčka běžící na vnitřních hodinách Tone.js
+            new Tone.Loop((time) => {
+                const currentChord = score[index % score.length];
                 
-                // Získání souřadnic pravého zápěstí (Right Wrist)
-                const rightWrist = pose.keypoints.find(kp => kp.name === 'right_wrist');
+                // Spuštění tónů pro všechny sekce orchestru najednou
+                orchestra.strings.triggerAttackRelease(currentChord.strings, "4n", time);
+                orchestra.woodwinds.triggerAttackRelease(currentChord.woodwinds, "4n", time);
+                orchestra.brass.triggerAttackRelease(currentChord.brass, "4n", time);
+                
+                index++;
+            }, "4n").start(0);
+        }
 
-                // Vykreslení bodu na zápěstí, pokud je vidět
-                if (rightWrist && rightWrist.score > 0.3) {
-                    ctx.beginPath();
-                    ctx.arc(canvas.width - rightWrist.x, rightWrist.y, 12, 0, 2 * Math.PI);
-                    ctx.fillStyle = '#00ffcc';
-                    ctx.fill();
+        // 2. Inicializace MediaPipe Hands (AI pro detekci rukou)
+        async function initAI() {
+            hands = new Hands({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+            });
 
-                    // VÝPOČET TEMPA (Dirigování):
-                    // Sledujeme rychlost změny vertikální (Y) pozice ruky
-                    if (lastRightWristY !== null) {
-                        const deltaY = Math.abs(rightWrist.y - lastRightWristY);
-                        const currentTime = performance.now();
-                        const deltaTime = currentTime - lastTime;
+            hands.setOptions({
+                maxNumHands: 2,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.6,
+                minTrackingConfidence: 0.6
+            });
 
-                        if (deltaTime > 0) {
-                            // Výpočet rychlosti pohybu ruky
-                            const speed = deltaY / deltaTime; 
+            hands.onResults(onHandResults);
 
-                            // Mapování rychlosti na BPM (rozsah 40 až 240 BPM)
-                            let targetBpm = Math.min(Math.max(speed * 1200, 40), 240);
+            statusDiv.innerText = "Orchestr je připraven. Vstupte na pódium.";
+            startBtn.disabled = false;
+        }
 
-                            // Vyhlazení změn tempa (Linear Interpolation)
-                            currentBpm = currentBpm * 0.9 + targetBpm * 0.1;
-                            
-                            // Aplikace nového tempa do Tone.js
-                            Tone.Transport.bpm.value = currentBpm;
-                            bpmDisplay.innerText = `${Math.round(currentBpm)} BPM`;
-                        }
-                    }
+        // 3. Zpracování výsledků z kamery v reálném čase
+        function onHandResults(results) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Vykreslení obrazu z kamery na plátno (zrcadlově)
+            ctx.save();
+            ctx.scale(-1, 1);
+            ctx.drawImage(results.image, -canvas.width, 0, canvas.width, canvas.height);
+            ctx.restore();
 
-                    lastRightWristY = rightWrist.y;
-                    lastTime = performance.now();
+            let rightHand = null;
+            let leftHand = null;
+
+            if (results.multiHandLandmarks && results.multiHandedness) {
+                for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+                    const landmarks = results.multiHandLandmarks[i];
+                    // MediaPipe obraz zrcadlí, takže přehodíme Left/Right pro přirozené vnímání
+                    const label = results.multiHandedness[i].label === 'Left' ? 'Right' : 'Left';
+
+                    if (label === 'Right') rightHand = landmarks;
+                    if (label === 'Left') leftHand = landmarks;
+
+                    // Vykreslení bodů ruky (Zápěstí / Dlaň)
+                    drawHandTracker(landmarks, label === 'Right' ? '#4facfe' : '#00f2fe');
                 }
             }
 
-            // Neustálé opakování vykreslovací smyčky
-            requestAnimationFrame(detectPose);
+            // OVLÁDÁNÍ PRAVÉ RUKY: TEMPO (BPM)
+            if (rightHand) {
+                const wristY = rightHand[0].y * canvas.height; // Y souřadnice zápěstí
+                const now = performance.now();
+                
+                if (lastRightY !== null) {
+                    const deltaY = Math.abs(wristY - lastRightY);
+                    const deltaTime = now - lastTime;
+                    
+                    if (deltaTime > 0) {
+                        const speed = deltaY / deltaTime;
+                        let targetBpm = Math.min(Math.max(speed * 1800, 50), 220);
+                        
+                        // Setrvačnost (vyhlazení), aby orchestr netrhal
+                        currentBpm = currentBpm * 0.92 + targetBpm * 0.08;
+                        Tone.Transport.bpm.value = currentBpm;
+                        bpmVal.innerText = `${Math.round(currentBpm)} BPM`;
+                    }
+                }
+                lastRightY = wristY;
+                lastTime = now;
+            } else {
+                // Pokud dirigent složí pravou ruku, orchestr zpomalí
+                currentBpm = currentBpm * 0.98 + 40 * 0.02;
+                Tone.Transport.bpm.value = currentBpm;
+                bpmVal.innerText = `${Math.round(currentBpm)} BPM`;
+            }
+
+            // OVLÁDÁNÍ LEVÉ RUKY: DYNAMIKA (HLASITOST)
+            if (leftHand) {
+                const wristY = leftHand[0].y; // Normalizovaná hodnota 0.0 (nahoře) až 1.0 (dole)
+                // Invertujeme: Čím výše ruka je (blíže k 0), tím hlasitější orchestr je
+                const volumeFactor = Math.min(Math.max((1 - wristY) * 1.3, 0), 1); 
+                
+                // Převod na decibely (Tone.js používá logaritmické dB, 0dB = max, -40dB = ticho)
+                const db = Tone.gainToDb(volumeFactor);
+                Tone.Destination.volume.setValueAtTime(db, Tone.now());
+                
+                volumeVal.innerText = `${Math.round(volumeFactor * 100)}%`;
+            } else {
+                // Bez levé ruky hraje orchestr potichu (pianissimo)
+                Tone.Destination.volume.setValueAtTime(-25, Tone.now());
+                volumeVal.innerText = "20% (Piano)";
+            }
         }
 
-        // Spuštění přípravy aplikace při načtení stránky
-        window.onload = init;
+        // Pomocná funkce pro vykreslení zářícího bodu na dlani
+        function drawHandTracker(landmarks, color) {
+            const wrist = landmarks[0];
+            const cx = (1 - wrist.x) * canvas.width; // Zrcadlové otočení souřadnic X
+            const cy = wrist.y * canvas.height;
+
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = color;
+            ctx.beginPath();
+            ctx.arc(cx, cy, 14, 0, 2 * Math.PI);
+            ctx.fillStyle = color;
+            ctx.fill();
+            ctx.shadowBlur = 0; // reset
+        }
+
+        // 4. Spuštění celého systému
+        startBtn.addEventListener('click', async () => {
+            startBtn.style.display = 'none';
+            statusDiv.innerText = "Pravá ruka = Tempo (mávání) | Levá ruka = Výška (Hlasitost)";
+            viewWrapper.style.display = 'block';
+
+            // Aktivace audio kontextu
+            await Tone.start();
+            initOrchestra();
+            startScore();
+            Tone.Transport.start();
+
+            // Spuštění kamery přes MediaPipe Camera Utility
+            camera = new Camera(video, {
+                onFrame: async () => {
+                    await hands.send({image: video});
+                },
+                width: 640,
+                height: 480
+            });
+            camera.start();
+        });
+
+        // Spuštění přípravy ihned po načtení stránky
+        window.onload = () => {
+            initAI();
+        };
     </script>
 </body>
 </html>
