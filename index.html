@@ -3,205 +3,275 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Dirigent</title>
+    <title>Dirigent Simulator (Semi-Conductor Clone)</title>
     
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/wasm/vision_bundle.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
 
     <style>
         body {
             margin: 0;
             padding: 0;
-            background: #1a1a2e;
-            color: white;
-            font-family: Arial, sans-serif;
+            background-color: #111;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            height: 100vh;
+            min-height: 100vh;
             overflow: hidden;
         }
+
+        h1 {
+            margin: 10px 0 5px 0;
+            font-weight: 300;
+            letter-spacing: 2px;
+        }
+
+        #status {
+            color: #aaa;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+
         #container {
             position: relative;
             width: 640px;
             height: 480px;
+            background: #222;
             border-radius: 12px;
-            overflow: hidden;
             box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            overflow: hidden;
         }
+
         video, canvas {
             position: absolute;
             top: 0;
             left: 0;
-            width: 100%;
-            height: 100%;
-            transform: scaleX(-1); /* Zrcadlové otočení pro přirozené ovládání */
+            transform: scaleX(-1); /* Zrcadlové otočení pro přirozený pohyb */
+            width: 640px;
+            height: 480px;
         }
-        #ui-overlay {
+
+        canvas {
+            z-index: 2;
+        }
+
+        #overlay {
             position: absolute;
-            top: 10px;
-            left: 10px;
-            z-index: 10;
-            background: rgba(0,0,0,0.6);
-            padding: 15px;
-            border-radius: 8px;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 3;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px 20px;
+            border-radius: 20px;
             pointer-events: none;
+            text-align: center;
         }
+
+        #bpm-display {
+            font-size: 24px;
+            font-weight: bold;
+            color: #00ffcc;
+        }
+
         #start-btn {
-            padding: 15px 30px;
-            font-size: 1.2rem;
-            background: #e94560;
-            color: white;
+            padding: 15px 40px;
+            font-size: 18px;
+            background-color: #00ffcc;
+            color: #111;
             border: none;
-            border-radius: 8px;
+            border-radius: 30px;
             cursor: pointer;
-            z-index: 20;
-            transition: 0.3s;
+            font-weight: bold;
+            box-shadow: 0 5px 15px rgba(0,255,204,0.4);
+            transition: all 0.3s ease;
+            z-index: 4;
         }
-        #start-btn:hover { background: #ff4d6d; }
-        .status { color: #4ecca3; font-weight: bold; }
+
+        #start-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 20px rgba(0,255,204,0.6);
+        }
+
+        #start-btn:disabled {
+            background-color: #555;
+            color: #888;
+            cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
+        }
     </style>
 </head>
 <body>
 
-    <button id="start-btn">Spustit hudbu a zapnout kameru</button>
+    <h1>DIRIGENT SIMULATOR</h1>
+    <div id="status">Načítám AI modely, prosím čekejte...</div>
 
-    <div id="container" style="display: none;">
-        <video id="webcam" autoplay playsinline></video>
-        <canvas id="output_canvas"></canvas>
-        <div id="ui-overlay">
-            <h3>AI Dirigent</h3>
-            <p>Status: <span id="status" class="status">Načítání AI...</span></p>
-            <p>Hlasitost: <span id="val-volume">100%</span></p>
-            <p>Vyvážení (L/P): <span id="val-balance">Střed</span></p>
-            <p>Tempo: <span id="val-tempo">120 BPM</span></p>
+    <button id="start-btn" disabled>SPUSTIT ORCHESTR</button>
+
+    <div id="container" style="display:none; margin-top: 20px;">
+        <video id="video" playsinline></video>
+        <canvas id="canvas"></canvas>
+        <div id="overlay">
+            <div>Aktuální tempo orchestru:</div>
+            <div id="bpm-display">0 BPM</div>
         </div>
     </div>
 
-    <script type="module">
-        import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/wasm/vision_bundle.js";
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const startBtn = document.getElementById('start-btn');
+        const statusDiv = document.getElementById('status');
+        const container = document.getElementById('container');
+        const bpmDisplay = document.getElementById('bpm-display');
 
-        const video = document.getElementById("webcam");
-        const canvas = document.getElementById("output_canvas");
-        const canvasCtx = canvas.getContext("2d");
-        const startBtn = document.getElementById("start-btn");
-        const container = document.getElementById("container");
-        
-        let handLandmarker = undefined;
-        let runningMode = "VIDEO";
-        let lastVideoTime = -1;
+        let detector;
+        let synth;
+        let sequence;
+        let lastRightWristY = null;
+        let lastTime = performance.now();
+        let currentBpm = 120;
 
-        // --- ZVUKOVÝ SYSTÉM (Tone.js) ---
-        // Použijeme jednoduchý vestavěný synth (pro testování bez autorských práv na MP3)
-        const synthA = new Tone.PolySynth(Tone.Synth).toDestination();
-        const synthB = new Tone.PolySynth(Tone.Synth).toDestination();
-        
-        // Nastavení základních zvuků (Housle / Violoncello simulace)
-        synthA.set({ oscillator: { type: "sawtooth" } });
-        synthB.set({ oscillator: { type: "triangle" } });
+        // Definice tónů pro Beethovenovu skladbu "Pro Elišku" (Für Elise)
+        const notes = [
+            "E5", "D#5", "E5", "D#5", "E5", "B4", "D5", "C5", "A4", null,
+            "C3", "E3", "A3", "C4", "E4", "A4", "B4", null,
+            "E3", "G#3", "E4", "G#4", "B4", "C5"
+        ];
 
-        // Jednoduchá smyčka (např. Mozart motiv zjednodušeně)
-        const melody = ["C4", "E4", "G4", "C5", "G4", "E4", "C4"];
-        let noteIndex = 0;
-
-        Tone.Transport.scheduleRepeat((time) => {
-            let note = melody[noteIndex % melody.length];
-            synthA.triggerAttackRelease(note, "8n", time);
-            synthB.triggerAttackRelease(Tone.Frequency(note).transposition(-12), "8n", time); // O oktávu níž
-            noteIndex++;
-        }, "4n");
-
-        // --- INICIALIZACE DETEKCE RUKOU ---
-        async function createHandLandmarker() {
-            const vision = await FilesetResolver.forVisionTasks(
-                "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.8/wasm"
-            );
-            handLandmarker = await HandLandmarker.createFromOptions(vision, {
-                baseOptions: {
-                    modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
-                    delegate: "GPU"
-                },
-                runningMode: runningMode,
-                numHands: 2
-            });
-            document.getElementById("status").innerText = "Připraveno! Mávni ruku.";
+        // 1. Inicializace aplikace a načtení AI modelů
+        async function init() {
+            try {
+                // Nastavení TensorFlow.js a MoveNet detectoru
+                await tf.ready();
+                detector = await poseDetection.createDetector(
+                    poseDetection.SupportedModels.MoveNet, 
+                    { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
+                );
+                
+                statusDiv.innerText = "Modely načteny. Povolte přístup k webkameře.";
+                startBtn.disabled = false;
+            } catch (error) {
+                statusDiv.innerText = "Chyba při načítání modelů: " + error.message;
+            }
         }
-        createHandLandmarker();
 
-        // --- SPUŠTĚNÍ KAMERY A ZVUKU ---
-        startBtn.addEventListener("click", async () => {
-            await Tone.start();
-            Tone.Transport.start();
-            Tone.Transport.bpm.value = 120;
-            
-            startBtn.style.display = "none";
-            container.style.display = "block";
-
-            navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
-                video.srcObject = stream;
-                video.addEventListener("loadeddata", predictWebcam);
+        // 2. Nastavení webkamery
+        async function setupCamera() {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: 640, height: 480 },
+                audio: false
             });
-        });
+            video.srcObject = stream;
+            return new Promise((resolve) => {
+                video.onloadedmetadata = () => {
+                    resolve(video);
+                };
+            });
+        }
 
-        // --- HLAVNÍ SMYČKA DETEKCE A OVLÁDÁNÍ ---
-        async function predictWebcam() {
+        // 3. Nastavení hudebního syntezátoru a sekvence (Tone.js)
+        function setupAudio() {
+            // Polyphonic Synth imitující jednoduchý orchestrální part
+            synth = new Tone.PolySynth(Tone.Synth, {
+                oscillator: { type: "triangle" },
+                envelope: { attack: 0.1, decay: 0.3, sustain: 0.6, release: 0.4 }
+            }).toDestination();
+
+            let noteIndex = 0;
+            
+            // Nekonečná smyčka přehrávání tónů
+            sequence = new Tone.Sequence((time, note) => {
+                if (note) {
+                    synth.triggerAttackRelease(note, "8n", time);
+                }
+            }, notes, "8n");
+
+            Tone.Transport.bpm.value = currentBpm;
+        }
+
+        // Spuštění po kliknutí na tlačítko
+        startBtn.addEventListener('click', async () => {
+            startBtn.style.display = 'none';
+            statusDiv.innerText = "Dirigujte pravou rukou nahoru a dolů pro ovládání tempa!";
+            container.style.display = 'block';
+
+            await setupCamera();
+            video.play();
+            
+            // Inicializace audio kontextu prohlížeče
+            await Tone.start();
+            setupAudio();
+            sequence.start(0);
+            Tone.Transport.start();
+
+            // Nastavení velikosti plátna podle videa
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
 
-            if (lastVideoTime !== video.currentTime) {
-                lastVideoTime = video.currentTime;
-                let startTimeMs = performance.now();
-                const results = handLandmarker.detectForVideo(video, startTimeMs);
+            // Spuštění detekční smyčky
+            detectPose();
+        });
 
-                canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+        // 4. Detekce pohybu v reálném čase
+        async function detectPose() {
+            const poses = await detector.estimatePoses(video);
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-                if (results.landmarks && results.landmarks.length > 0) {
-                    for (let i = 0; i < results.landmarks.length; i++) {
-                        const landmarks = results.landmarks[i];
-                        const handedness = results.handednesses[i][0].categoryName; // "Left" nebo "Right" (z pohledu kamery)
+            if (poses.length > 0) {
+                const pose = poses[0];
+                
+                // Získání souřadnic pravého zápěstí (Right Wrist)
+                const rightWrist = pose.keypoints.find(kp => kp.name === 'right_wrist');
 
-                        // Vykreslení kloubů na plátno
-                        drawHand(landmarks);
+                // Vykreslení bodu na zápěstí, pokud je vidět
+                if (rightWrist && rightWrist.score > 0.3) {
+                    ctx.beginPath();
+                    ctx.arc(canvas.width - rightWrist.x, rightWrist.y, 12, 0, 2 * Math.PI);
+                    ctx.fillStyle = '#00ffcc';
+                    ctx.fill();
 
-                        // Hlavní kloub (zápěstí je index 0)
-                        const wrist = landmarks[0];
+                    // VÝPOČET TEMPA (Dirigování):
+                    // Sledujeme rychlost změny vertikální (Y) pozice ruky
+                    if (lastRightWristY !== null) {
+                        const deltaY = Math.abs(rightWrist.y - lastRightWristY);
+                        const currentTime = performance.now();
+                        const deltaTime = currentTime - lastTime;
 
-                        // OVLÁDÁNÍ PODLE STRANY RUKY
-                        if (handedness === "Left") { 
-                            // Pravá ruka uživatele (zrcadlově otočená kamera ji bere jako Left)
-                            // Výška (Y) ovládá Hlasitost (0 navrhu = ticho v MediaPipe, proto (1 - Y))
-                            let vol = (1 - wrist.y) * 20 - 15; // Přepočet na decibely (-15dB až +5dB)
-                            Tone.Destination.volume.rampTo(vol, 0.1);
-                            document.getElementById("val-volume").innerText = Math.round((1 - wrist.y) * 100) + "%";
-                        } 
-                        else if (handedness === "Right") {
-                            // Levá ruka uživatele (kamera ji vidí jako Right)
-                            // Horizontální pozice (X) ovládá balanc mezi vysokými a nízkými tóny
-                            let mix = wrist.x; // 0 vlevo, 1 vpravo
-                            synthA.volume.value = Tone.gainToDb(1 - mix);
-                            synthB.volume.value = Tone.gainToDb(mix);
+                        if (deltaTime > 0) {
+                            // Výpočet rychlosti pohybu ruky
+                            const speed = deltaY / deltaTime; 
+
+                            // Mapování rychlosti na BPM (rozsah 40 až 240 BPM)
+                            let targetBpm = Math.min(Math.max(speed * 1200, 40), 240);
+
+                            // Vyhlazení změn tempa (Linear Interpolation)
+                            currentBpm = currentBpm * 0.9 + targetBpm * 0.1;
                             
-                            document.getElementById("val-balance").innerText = mix < 0.4 ? "Vysoké smyčce" : mix > 0.6 ? "Nízké smyčce" : "Střed";
+                            // Aplikace nového tempa do Tone.js
+                            Tone.Transport.bpm.value = currentBpm;
+                            bpmDisplay.innerText = `${Math.round(currentBpm)} BPM`;
                         }
                     }
+
+                    lastRightWristY = rightWrist.y;
+                    lastTime = performance.now();
                 }
             }
-            window.requestAnimationFrame(predictWebcam);
+
+            // Neustálé opakování vykreslovací smyčky
+            requestAnimationFrame(detectPose);
         }
 
-        // Pomocná funkce na vykreslení ruky
-        function drawHand(landmarks) {
-            canvasCtx.fillStyle = "#e94560";
-            canvasCtx.strokeStyle = "#4ecca3";
-            canvasCtx.lineWidth = 3;
-
-            landmarks.forEach(point => {
-                canvasCtx.beginPath();
-                canvasCtx.arc(point.x * canvas.width, point.y * canvas.height, 5, 0, 2 * Math.PI);
-                canvasCtx.fill();
-            });
-        }
+        // Spuštění přípravy aplikace při načtení stránky
+        window.onload = init;
     </script>
 </body>
 </html>
